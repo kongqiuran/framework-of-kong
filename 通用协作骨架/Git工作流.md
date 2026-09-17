@@ -108,3 +108,33 @@ git reset --hard HEAD~1
 # 查看所有操作记录（包括 reset）
 git reflog
 ```
+
+---
+
+## ⚠️ 实测坑：代理环境变量会把 gh 挡住（2026-09-17）
+
+**现象**：给 `gh` 加代理环境变量后，既连不上又会被误判为“登录失效”：
+
+```bash
+# ❌ 这么跑（当时 Clash 的 7899 端口并未监听）
+HTTP_PROXY=http://127.0.0.1:7899 HTTPS_PROXY=http://127.0.0.1:7899 gh auth status
+# → X Failed to log in … The token in keyring is invalid.
+# → gh repo create 时报：proxyconnect tcp: dial tcp 127.0.0.1:7899: connectex: ...
+```
+
+**根因**：报错是 **proxyconnect 失败**，不是 token 真的失效。
+gh 在代理不通时把这归因为登录失败，**误导性极强**（差一点就去让用户重新登录了）。
+
+**实测结论（不带代理）**：
+
+```bash
+gh auth status   # ✓ Logged in to github.com account kongqiuran (keyring)，scopes: repo…
+gh api user      # ✓ 正常返回登录名
+git ls-remote https://github.com/...  # ✓ 直连可用（git config 里没有配代理）
+```
+
+**规矩**：
+1. 本机 `gh` 与 `git` **直连 GitHub 可用**，不要无脑加 `HTTP_PROXY`／`HTTPS_PROXY`。
+2. 只有在确实需要代理时（例：`raw.githubusercontent.com` 抽风）再临时加，**且用完就 `unset`**。
+3. 看到 `gh` 说“keyring token invalid”时，**先看完整错误里有没有 `proxyconnect`**，
+   再决定要不要重新登录——否则会把一个网络问题当成账号问题。
